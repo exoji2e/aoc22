@@ -1,0 +1,4 @@
+bs4
+progressbar2
+requests
+pyperclip

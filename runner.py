@@ -5,9 +5,13 @@ import logging as log
 import pathlib
 import progressbar
 import requests, bs4
+import pyperclip
 
 sys.path.extend(['..', '.'])
 from utils import get_lines, print_stats
+
+def copy_to_clipboard(s):
+    pyperclip.copy(str(s))
 
 def submit_real(year, day, level, answer):
     from secret import session
@@ -139,6 +143,7 @@ def get_commands():
     parser.add_argument('-1', '--p1', action='store_true', help='only part 1')
     parser.add_argument('-2', '--p2', action='store_true', help='only part 2')
     parser.add_argument('-s', '--s', action='store_true', help='submit')
+    parser.add_argument('-n', '--no_copy', action='store_true', help='skip copying')
     parser.add_argument('-y', '--yes', action='store_true', help='no prompt')
     parser.add_argument('-i', '--info', action='store_true', help='print info')
     args = parser.parse_args()
@@ -159,6 +164,8 @@ def get_commands():
             cmds.append('submit1')
     if args.yes:
         cmds.append('no_prompt')
+    if not args.no_copy:
+        cmds.append('copy')
 
     if args.info: cmds.append('print_stats')
     if args.rs: cmds.append('run_samples')
@@ -174,6 +181,11 @@ def run_samples(p1_fn, p2_fn, cmds, FILE):
         if 'run2' in cmds:
             print('p2: ', p2_fn(data))
 
+def print_and_copy(part, res, copy):
+    if copy:
+        copy_to_clipboard(res)
+    copy_msg = ('- copied to clipboard' if copy else '')
+    print(f'part_{part}: "{res}" {copy_msg}')
 
 def run(YEAR, DAY, p1_fn, p2_fn, cmds, FILE=None):
     target = get_target(YEAR, DAY)
@@ -188,12 +200,12 @@ def run(YEAR, DAY, p1_fn, p2_fn, cmds, FILE=None):
 
     if 'run1' in cmds:
         res = p1_fn(v)
-        print('part_1: {}'.format(res))
+        print_and_copy(1, res, 'copy' in cmds)
         if 'submit1' in cmds:
             submit(YEAR, DAY, 1, res, 'no_prompt' in cmds)
     if 'run2' in cmds:
         res = p2_fn(v)
-        print('part_2: {}'.format(res))
+        print_and_copy(2, res, 'copy' in cmds)
         if 'submit2' in cmds:
             submit(YEAR, DAY, 2, res, 'no_prompt' in cmds)
 
