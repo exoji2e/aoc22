@@ -168,7 +168,7 @@ def get_commands():
         cmds.append('copy')
 
     if args.info: cmds.append('print_stats')
-    if args.rs: cmds.append('run_samples')
+    if args.rs or args.so: cmds.append('run_samples')
     if args.so: cmds.append('samples_only')
     return cmds
 
@@ -177,9 +177,9 @@ def run_samples(p1_fn, p2_fn, cmds, FILE):
     for fname, data in get_samples(FILE):
         print(fname)
         if 'run1' in cmds:
-            print('p1: ', p1_fn(data))
+            print(f'[SAMPLE] p1: "{ p1_fn(data) }"')
         if 'run2' in cmds:
-            print('p2: ', p2_fn(data))
+            print(f'[SAMPLE] p2: "{ p2_fn(data) }"')
 
 def print_and_copy(part, res, copy):
     if copy:
@@ -195,7 +195,7 @@ def run(YEAR, DAY, p1_fn, p2_fn, cmds, FILE=None):
     v = fetch(YEAR, DAY, log, wait_until_date=target, force=force)
     if FILE != None:
         writeInputToFolder(FILE, v)
-    if 'print_stats' in cmds:
+    if 'print_stats' in cmds and 'run_samples' not in cmds:
         print_stats(v)
 
     if 'run1' in cmds:
@@ -208,6 +208,12 @@ def run(YEAR, DAY, p1_fn, p2_fn, cmds, FILE=None):
         print_and_copy(2, res, 'copy' in cmds)
         if 'submit2' in cmds:
             submit(YEAR, DAY, 2, res, 'no_prompt' in cmds)
+
+def main(YEAR, DAY, p1_fn, p2_fn, cmds, FILE=None):
+    if 'run_samples' in cmds:
+        run_samples(p1_fn, p2_fn, cmds, FILE)
+    if 'samples_only' not in cmds:
+        run(YEAR, DAY, p1_fn, p2_fn, cmds, FILE=FILE)
 
 def create_day(day):
     padded = '{:02d}'.format(day)
