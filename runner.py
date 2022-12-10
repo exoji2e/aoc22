@@ -1,14 +1,29 @@
 import argparse
-import sys, time, os, glob, time
+import sys, time, os, glob, time, errno, shutil
 from datetime import datetime, timezone, timedelta
 import logging as log
 import pathlib
 import progressbar
 import requests, bs4
 import pyperclip
+import shutil
 
 sys.path.extend(['..', '.'])
 from utils import get_lines, print_stats
+
+class Tie:
+    def __init__(self, out_streams):
+        self.out_streams = out_streams
+    def write(self, s):
+        for o in self.out_streams:
+            o.write(s)
+    def close(self):
+        for o in self.out_streams:
+            o.close()
+    def flush(self):
+        for o in self.out_streams:
+            o.flush()
+
 
 def copy_to_clipboard(s):
     pyperclip.copy(str(s))
@@ -71,6 +86,12 @@ def dl(fname, day, year):
 def mkdirs(f):
     try:
         os.makedirs(f)
+    except: pass
+
+def symlink_force(target, link_name):
+    try:
+        os.remove(link_name)
+        os.symlink(target, link_name)
     except: pass
 
 def wait_until(date_time):
@@ -136,50 +157,76 @@ def get_folder(FILE):
     return pathlib.Path(FILE).parent.absolute()
 
 
+
+class Options:
+    def __init__(self, args):
+        def getPartsToRun(args):
+            if args.p1 and not args.p2:
+                return True, False
+            if not args.p1 and args.p2:
+                return False, True
+            return True, True
+        self.p1, self.p2 = getPartsToRun(args)
+        self.submit = args.s
+        self.auto_yes = args.yes
+        self.copy = not args.no_copy
+        self.print_stats = args.info
+        self.force_fetch = args.force_fetch
+        if args.pipe:
+            self.run_options = 'PIPE'
+        elif args.in_file:
+            self.run_options = 'IN_FILE'
+            self.in_file = args.in_file
+        elif args.so:
+            self.run_options = 'SAMPLES_ONLY'
+        elif args.rs:
+            self.run_options = 'RUN_BOTH'
+        else:
+            self.run_options = 'RUN_INPUT'
+    def print_info(self):
+        return self.run_options == 'RUN_INPUT' and self.print_stats
+    def submit1(self):
+        return self.submit and not self.p2
+    def submit2(self):
+        return self.submit and self.p2
+    def run_samples(self):
+        return self.run_options in ['RUN_BOTH', 'SAMPLES_ONLY']
+    def run_input(self):
+        return self.run_options in ['RUN_BOTH', 'RUN_INPUT']
+    def run_in_file(self):
+        return self.run_options == 'IN_FILE'
+    def run_pipe(self):
+        return self.run_options == 'PIPE'
+    def __repr__(self):
+        return f'{self.run_options}; p1:{self.p1} p2:{self.p2}'
+
 def get_commands():
     parser = argparse.ArgumentParser()
     parser.add_argument('--rs', action='store_true', help='run_samples')
     parser.add_argument('--so', action='store_true', help='samples_only')
+    parser.add_argument('-p', '--pipe', action='store_true', help='read input from stdin')
+    parser.add_argument('-f', '--in_file', default=None, help='in_file')
     parser.add_argument('-1', '--p1', action='store_true', help='only part 1')
     parser.add_argument('-2', '--p2', action='store_true', help='only part 2')
     parser.add_argument('-s', '--s', action='store_true', help='submit')
     parser.add_argument('-n', '--no_copy', action='store_true', help='skip copying')
     parser.add_argument('-y', '--yes', action='store_true', help='no prompt')
     parser.add_argument('-i', '--info', action='store_true', help='print info')
+    parser.add_argument('--force_fetch', action='store_true', help='force fetch')
     args = parser.parse_args()
-    cmds = []
-    if not args.p1 and not args.p2:
-        cmds.append('run1')
-        cmds.append('run2')
-    else:
-        if args.p1:
-            cmds.append('run1')
-        else:
-            cmds.append('run2')
-
-    if args.s:
-        if 'run2' in cmds:
-            cmds.append('submit2')
-        elif 'run1' in cmds:
-            cmds.append('submit1')
-    if args.yes:
-        cmds.append('no_prompt')
-    if not args.no_copy:
-        cmds.append('copy')
-
-    if args.info: cmds.append('print_stats')
-    if args.rs or args.so: cmds.append('run_samples')
-    if args.so: cmds.append('samples_only')
-    return cmds
+    return Options(args)
 
 
-def run_samples(p1_fn, p2_fn, cmds, FILE):
+def run_samples(p1_fn, p2_fn, options, FILE):
     for fname, data in get_samples(FILE):
-        print(fname)
-        if 'run1' in cmds:
-            print(f'[SAMPLE] p1: "{ p1_fn(data) }"')
-        if 'run2' in cmds:
-            print(f'[SAMPLE] p2: "{ p2_fn(data) }"')
+        run_sample(data, p1_fn, p2_fn, fname, options)
+
+def run_sample(data, p1_fn, p2_fn, name, options):
+    if options.p1:
+        print(f'[{name}] p1: "{ p1_fn(data) }"')
+    if options.p2:
+        print(f'[{name}] p2: "{ p2_fn(data) }"')
+
 
 def print_and_copy(part, res, copy):
     if copy:
@@ -187,33 +234,54 @@ def print_and_copy(part, res, copy):
     copy_msg = ('- copied to clipboard' if copy else '')
     print(f'part_{part}: "{res}" {copy_msg}')
 
-def run(YEAR, DAY, p1_fn, p2_fn, cmds, FILE=None):
+def run(YEAR, DAY, p1_fn, p2_fn, options, FILE):
     target = get_target(YEAR, DAY)
     fmt_str = '%(asctime)-15s %(filename)8s:%(lineno)-3d %(message)s'
     log.basicConfig(level=log.DEBUG, format=fmt_str)
-    force = 'force_fetch' in cmds
-    v = fetch(YEAR, DAY, log, wait_until_date=target, force=force)
+    input_data = fetch(YEAR, DAY, log, wait_until_date=target, force=options.force_fetch)
     if FILE != None:
-        writeInputToFolder(FILE, v)
-    if 'print_stats' in cmds and 'run_samples' not in cmds:
-        print_stats(v)
+        writeInputToFolder(FILE, input_data)
+    if options.print_info():
+        print_stats(input_data)
 
-    if 'run1' in cmds:
-        res = p1_fn(v)
-        print_and_copy(1, res, 'copy' in cmds)
-        if 'submit1' in cmds:
-            submit(YEAR, DAY, 1, res, 'no_prompt' in cmds)
-    if 'run2' in cmds:
-        res = p2_fn(v)
-        print_and_copy(2, res, 'copy' in cmds)
-        if 'submit2' in cmds:
-            submit(YEAR, DAY, 2, res, 'no_prompt' in cmds)
+    if options.p1:
+        res = p1_fn(input_data)
+        print_and_copy(1, res, options.copy)
+        if options.submit1():
+            submit(YEAR, DAY, 1, res, options.auto_yes)
+    if options.p2:
+        res = p2_fn(input_data)
+        print_and_copy(2, res, options.copy)
+        if options.submit2():
+            submit(YEAR, DAY, 2, res, options.auto_yes)
 
-def main(YEAR, DAY, p1_fn, p2_fn, cmds, FILE=None):
-    if 'run_samples' in cmds:
-        run_samples(p1_fn, p2_fn, cmds, FILE)
-    if 'samples_only' not in cmds:
-        run(YEAR, DAY, p1_fn, p2_fn, cmds, FILE=FILE)
+def creteClone(file):
+    file = pathlib.Path(file)
+    file_name = file.name
+    d = datetime.now()
+    timeStr = d.isoformat().replace(':', '-').split('.')[0]
+    folder = f'runs/{timeStr}'
+    mkdirs(folder)
+    symlink_force(f'{folder}', 'last_run')
+    shutil.copyfile(file, f'{folder}/{file_name}')
+    stdout_file = open(f'{folder}/out.txt', 'w')
+    sys.stdout = Tie([sys.__stdout__, stdout_file])
+
+
+
+def main(YEAR, DAY, p1_fn, p2_fn, options, FILE=None):
+    creteClone(FILE)
+    if options.run_samples():
+        run_samples(p1_fn, p2_fn, options, FILE)
+    if options.run_input():
+        run(YEAR, DAY, p1_fn, p2_fn, options, FILE)
+    if options.run_in_file():
+        data = open(options.in_file).read()
+        run_sample(data, p1_fn, p2_fn, options.in_file, options)
+    if options.run_pipe():
+        data = sys.stdin.read()
+        run_sample(data, p1_fn, p2_fn, 'PIPE', options)
+
 
 def create_day(day):
     padded = '{:02d}'.format(day)

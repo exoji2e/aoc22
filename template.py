@@ -20,15 +20,6 @@ def p2(v):
 
 
 if __name__ == '__main__':
-    cmds = get_commands()
-    """
-    cmds = [
-        #'print_stats',
-        'run1',
-        #'submit1',
-        #'run2',
-        #'submit2',
-        ]
-    """
-    print('Commands:', cmds)
-    main(get_year(), get_day(), p1, p2, cmds, FILE=__file__)
+    options = get_commands()
+    print('Commands:', options)
+    main(get_year(), get_day(), p1, p2, options, FILE=__file__)

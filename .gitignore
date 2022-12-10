@@ -2,3 +2,5 @@ secret.py
 __pycache__
 *.pyc
 cache
+runs
+last_run
