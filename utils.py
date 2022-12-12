@@ -1,5 +1,49 @@
 import re
 
+# Grids
+def grid4n(r, c):
+    return [(r-1, c), (r, c-1), (r, c+1), (r+1, c)]
+def grid8n(r, c):
+    o = []
+    for rr in range(r-1, r+2):
+        for cc in range(c-1, c+2):
+            if (rr, cc) != (r, c):
+                o.append((rr, cc))
+    return o
+
+def filter_coords(coords, R, C):
+    out = []
+    for r, c in coords:
+        if r < 0 or r >= R:
+            continue
+        if c < 0 or c >= C:
+            continue
+        out.append((r, c))
+    return out
+
+def grid4nf(r, c, R, C):
+    return filter_coords(grid4n(r, c), R, C)
+def grid8nf(r, c, R, C):
+    return filter_coords(grid8n(r, c), R, C)
+
+def printCoords(D, LIMIT=500):
+    coords = list(D.keys())
+    mnx = min(coords)[0]
+    mny = min(coords, key=lambda c: c[1])[1]
+    mxx = max(coords)[0]
+    mxy = max(coords, key=lambda c: c[1])[1]
+    if mxx - mnx >= LIMIT or mxy - mny >= LIMIT:
+        print(D)
+        return
+    dx = max(mxx - mnx + 3, 10)
+    dy = max(mxy - mny + 3, 10)
+    G = [['.' for _ in range(dx)] for _ in range(dy)]
+    for (x, y), v in D.items():
+        G[mxy - y + 1][x - mnx + 1] = str(v)
+    print('\n'.join(''.join(ln) for ln in G))
+    print('----------------------')
+
+
 # String parsing
 
 def exact_match(pattern, s):
@@ -35,6 +79,16 @@ def lazy_ints(arr):
         else:
             out.append(v)
     return out
+
+
+
+
+def is_int(n):
+    try:
+        int(n)
+        return True
+    except ValueError:
+        return False
 
 # VM
 class VM:
@@ -73,41 +127,6 @@ class VM:
     def exec(self):
         while self.running:
             self.step()
-
-
-
-# Grids
-def grid4n(r, c):
-    return [(r-1, c), (r, c-1), (r, c+1), (r+1, c)]
-def grid8n(r, c):
-    o = []
-    for rr in range(r-1, r+2):
-        for cc in range(c-1, c+2):
-            if (rr, cc) != (r, c):
-                o.append((rr, cc))
-    return o
-
-def filter_coords(coords, R, C):
-    out = []
-    for r, c in coords:
-        if r < 0 or r >= R:
-            continue
-        if c < 0 or c >= C:
-            continue
-        out.append((r, c))
-    return out
-
-def grid4nf(r, c, R, C):
-    return filter_coords(grid4n(r, c), R, C)
-def grid8nf(r, c, R, C):
-    return filter_coords(grid8n(r, c), R, C)
-
-def is_int(n):
-    try:
-        int(n)
-        return True
-    except ValueError:
-        return False
 
 
 def print_stats(v):
